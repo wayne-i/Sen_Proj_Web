@@ -1,0 +1,1 @@
+Uploaded proof-of-payment images are stored here. Do not place PHP files in this folder.
