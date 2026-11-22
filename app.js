@@ -307,17 +307,128 @@ function renderRevenueChart(rows) {
   }).join("")}</div></div>`;
 }
 
+const roomTypeColors = {
+  single: "#0d9488",
+  double: "#4f6bed",
+  deluxe: "#a855c7",
+  suite: "#e08a1e"
+};
+const roomTypeFallback = ["#e0577a", "#0e8fb0", "#7c9a2d", "#a0694f"];
+
+function roomTypeColor(name) {
+  const key = String(name || "").trim().toLowerCase();
+  if (roomTypeColors[key]) return roomTypeColors[key];
+  const index = state.roomTypes.findIndex(type => String(type.name).toLowerCase() === key);
+  return roomTypeFallback[Math.max(0, index) % roomTypeFallback.length];
+}
+
+// Display-only room details per room type. Edit these to match the real rooms.
+const roomTypeDetails = {
+  single: { guests: 1, bed: "1 Single bed", amenities: ["Fan", "Private bath"] },
+  double: { guests: 2, bed: "1 Double bed", amenities: ["Air-con", "TV", "Private bath"] },
+  deluxe: { guests: 3, bed: "1 Queen + 1 Single bed", amenities: ["Air-con", "TV", "Mini fridge", "Private bath"] },
+  suite: { guests: 4, bed: "1 King bed + Sofa bed", amenities: ["Air-con", "TV", "Mini fridge", "Living area", "Private bath"] }
+};
+
+function roomDetails(room) {
+  const key = String(room.type || "").trim().toLowerCase();
+  const details = roomTypeDetails[key] || { guests: 2, bed: "—", amenities: [] };
+  const floor = /^\d{3,}/.test(String(room.number)) ? Number(String(room.number)[0]) : null;
+  return { ...details, floor };
+}
+
+function currentStayFor(room) {
+  return state.stays.find(stay => stay.status === "Checked-in" && String(stay.roomNumber) === String(room.number));
+}
+
+function injectRoomStyles() {
+  if (document.getElementById("roomTypeStyles")) return;
+  const style = document.createElement("style");
+  style.id = "roomTypeStyles";
+  style.textContent = `
+    .rt-chips{display:flex;flex-wrap:wrap;gap:.5rem;margin-bottom:1.1rem}
+    .rt-chip{display:inline-flex;align-items:center;gap:.5rem;border:1px solid #e3e8e5;background:#fff;color:#44524b;border-radius:999px;padding:.38rem .9rem;font-size:.82rem;font-weight:600;cursor:pointer;transition:all .15s}
+    .rt-chip i{width:.55rem;height:.55rem;border-radius:50%;background:var(--tc);display:inline-block}
+    .rt-chip:hover{border-color:var(--tc);color:var(--tc)}
+    .rt-chip.active{background:color-mix(in srgb,var(--tc) 12%,#fff);border-color:var(--tc);color:var(--tc)}
+    .rt-card{padding:0!important;overflow:hidden;position:relative;border:1px solid #e8ece9;border-radius:18px;background:#fff;box-shadow:0 1px 2px rgba(20,40,30,.04),0 6px 18px rgba(20,40,30,.05);transition:transform .18s,box-shadow .18s}
+    .rt-card:hover{transform:translateY(-3px);box-shadow:0 2px 4px rgba(20,40,30,.05),0 14px 28px rgba(20,40,30,.10)}
+    .rt-card::before{content:"";position:absolute;inset:0 0 auto 0;height:96px;background:linear-gradient(160deg,color-mix(in srgb,var(--tc) 20%,#fff),color-mix(in srgb,var(--tc) 3%,#fff));pointer-events:none}
+    .rt-top{position:relative;display:flex;justify-content:space-between;align-items:center;padding:1rem 1rem 0}
+    .rt-pill{display:inline-flex;align-items:center;gap:.4rem;background:var(--tc);color:#fff;border-radius:999px;padding:.25rem .75rem;font-size:.72rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase}
+    .rt-status{display:inline-flex;align-items:center;gap:.4rem;font-size:.78rem;font-weight:600;color:#44524b}
+    .rt-status i{width:.5rem;height:.5rem;border-radius:50%;background:#9aa7a0;display:inline-block}
+    .rt-status.s-available i{background:#22c55e;box-shadow:0 0 0 3px rgba(34,197,94,.18)}
+    .rt-status.s-occupied i{background:#ef4444;box-shadow:0 0 0 3px rgba(239,68,68,.18)}
+    .rt-status.s-cleaning i{background:#f59e0b;box-shadow:0 0 0 3px rgba(245,158,11,.2)}
+    .rt-body{position:relative;padding:1.1rem 1rem 1rem}
+    .rt-number{font-size:1.7rem;font-weight:800;line-height:1;letter-spacing:-.02em;color:#1f2b25}
+    .rt-number small{display:block;font-size:.7rem;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:#7a8780;margin-bottom:.3rem}
+    .rt-meta{display:grid;grid-template-columns:1fr 1fr;gap:.45rem .75rem;margin-top:.85rem;padding-top:.85rem;border-top:1px dashed #e3e8e5;font-size:.8rem;color:#44524b}
+    .rt-meta .wide{grid-column:1/-1}
+    .rt-meta b{display:block;font-size:.65rem;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:#8a968f;margin-bottom:.1rem}
+    .rt-tags{display:flex;flex-wrap:wrap;gap:.3rem;margin-top:.7rem}
+    .rt-tag{background:color-mix(in srgb,var(--tc) 10%,#fff);color:color-mix(in srgb,var(--tc) 80%,#000);border-radius:6px;padding:.15rem .5rem;font-size:.7rem;font-weight:600}
+    .rt-guest{margin-top:.8rem;padding:.55rem .7rem;border-radius:10px;background:#fdf1f0;color:#8a3a33;font-size:.78rem}
+    .rt-guest strong{display:block;color:#5c231e}
+    .rt-body .room-rate{margin-top:.7rem;font-size:1.05rem;font-weight:700;color:var(--tc)}
+    .rt-body .room-rate small{color:#7a8780;font-weight:500}
+    .rt-body .action-buttons .btn{border-radius:10px;border-color:#e3e8e5;color:#55635b;background:#fff}
+    .rt-body .action-buttons .btn:hover{background:#f3f6f4}
+    .rt-body .action-buttons .btn-outline-danger:hover{background:#fdecec;color:#c0392b;border-color:#f3c4c0}
+  `;
+  document.head.appendChild(style);
+}
+
 function renderRooms() {
+  const filter = state.roomTypeFilter || "";
   const actions = '<button class="btn btn-primary btn-sm" data-action="add-room">＋ Add room</button>';
-  const rows = state.rooms.length ? state.rooms.map(room => `<tr>
-    <td><strong>${escapeHTML(room.number)}</strong></td><td>${escapeHTML(room.type)}</td><td>${money(room.rate)}</td><td>${statusBadge(room.status)}</td>
-    <td><div class="action-buttons">
-      ${room.status === "Cleaning" ? `<button class="btn btn-outline-success" data-action="room-clean" data-id="${room.id}">Ready</button>` : ""}
-      ${room.status !== "Occupied" ? `<button class="btn btn-outline-secondary" data-action="edit-room" data-id="${room.id}">Edit</button><button class="btn btn-outline-danger" data-action="delete-room" data-id="${room.id}">Delete</button>` : '<span class="small text-secondary">In use</span>'}
-    </div></td></tr>`).join("") : emptyRow(5, "No rooms added yet. Add a room to begin managing inventory.");
+  const typeNames = [...new Set([...state.roomTypes.map(type => type.name), ...state.rooms.map(room => room.type)])];
+  const chips = [`<button class="rt-chip ${filter ? "" : "active"}" style="--tc:#24312b" data-action="filter-type" data-type="">All (${state.rooms.length})</button>`]
+    .concat(typeNames.map(name => {
+      const count = state.rooms.filter(room => room.type === name).length;
+      return `<button class="rt-chip ${filter === name ? "active" : ""}" style="--tc:${roomTypeColor(name)}" data-action="filter-type" data-type="${escapeHTML(name)}"><i></i>${escapeHTML(name)} (${count})</button>`;
+    })).join("");
+  const visible = state.rooms.filter(room => !filter || room.type === filter);
+  const cards = visible.length ? visible.map(room => `
+    <div class="col-12 col-sm-6 col-lg-4 col-xl-3 room-item">
+      <article class="room-card rt-card h-100" style="--tc:${roomTypeColor(room.type)}">
+        <div class="rt-top">
+          <span class="rt-pill">${escapeHTML(room.type)}</span>
+          <span class="rt-status s-${escapeHTML(String(room.status).toLowerCase().replace(/\s+/g, "-"))}"><i></i>${escapeHTML(room.status)}</span>
+        </div>
+        <div class="rt-body">
+          <div class="rt-number"><small>Room</small>${escapeHTML(room.number)}</div>
+          <div class="room-rate">${money(room.rate)} <small>/ night</small></div>
+          ${(() => {
+            const d = roomDetails(room);
+            const stay = room.status === "Occupied" ? currentStayFor(room) : null;
+            return `<div class="rt-meta">
+              <div><b>Floor</b>${d.floor ? `${d.floor}${["th","st","nd","rd"][d.floor] || "th"} floor` : "—"}</div>
+              <div><b>Capacity</b>${d.guests} guest${d.guests === 1 ? "" : "s"}</div>
+              <div class="wide"><b>Bed</b>${escapeHTML(d.bed)}</div>
+            </div>
+            <div class="rt-tags">${d.amenities.map(item => `<span class="rt-tag">${escapeHTML(item)}</span>`).join("")}</div>
+            ${stay ? `<div class="rt-guest"><strong>${escapeHTML(stay.guestName)}</strong>Check-out: ${dateValue(stay.expectedCheckout)}</div>` : ""}`;
+          })()}
+          <div class="action-buttons mt-3">
+            ${room.status === "Cleaning" ? `<button class="btn btn-outline-success" data-action="room-clean" data-id="${room.id}">Ready</button>` : ""}
+            ${room.status !== "Occupied"
+              ? `<button class="btn btn-outline-secondary" data-action="edit-room" data-id="${room.id}">Edit</button><button class="btn btn-outline-danger" data-action="delete-room" data-id="${room.id}">Delete</button>`
+              : '<span class="small text-secondary">In use</span>'}
+          </div>
+        </div>
+      </article>
+    </div>`).join("")
+    : '<div class="col-12"><div class="empty-state p-3">No rooms to show. Add a room or pick another room type.</div></div>';
   return `${heading("ROOM MANAGEMENT", "Rooms", "Manage room type, nightly rate, and operating status.", actions)}
-    <section class="content-card"><div class="card-heading"><div><h2>Room inventory</h2><p>Occupied status changes automatically through guest check-in and check-out.</p></div><div class="search-wrap"><input class="form-control form-control-sm" id="roomSearch" type="search" placeholder="Search rooms" aria-label="Search rooms"></div></div>
-    <div class="table-responsive"><table class="table table-hover"><thead><tr><th>ROOM</th><th>TYPE</th><th>RATE / NIGHT</th><th>STATUS</th><th>ACTIONS</th></tr></thead><tbody id="roomsTableBody">${rows}</tbody></table></div></section>`;
+    <section class="content-card">
+      <div class="card-heading">
+        <div><h2>Room inventory</h2><p>Occupied status changes automatically through guest check-in and check-out.</p></div>
+        <div class="search-wrap"><input class="form-control form-control-sm" id="roomSearch" type="search" placeholder="Search rooms" aria-label="Search rooms"></div>
+      </div>
+      <div class="p-3"><div class="rt-chips">${chips}</div><div class="row g-3" id="roomsTableBody">${cards}</div></div>
+    </section>`;
 }
 
 function renderGuests() {
@@ -605,7 +716,7 @@ function openCheckoutForm(stayId = "") {
   clearForm("checkoutForm", ["checkoutError"]);
   const select = document.getElementById("checkoutStay");
   select.innerHTML = '<option value="">Select checked-in guest</option>' + activeStays()
-    .map(stay => `<option value="${stay.id}">${escapeHTML(stay.guestName)} · Room ${escapeHTML(stay.roomNumber)} · ${escapeHTML(stay.checkinCode)}</option>`).join("");
+    .map(stay => `<option value="${stay.id}" data-balance="${stayBalance(stay).toFixed(2)}">${escapeHTML(stay.guestName)} · Room ${escapeHTML(stay.roomNumber)} · ${escapeHTML(stay.checkinCode)}</option>`).join("");
   if (stayId) select.value = String(stayId);
   document.getElementById("checkoutDetails").textContent = "Select a guest to review room and charges.";
   updateCheckoutSummary();
@@ -656,9 +767,71 @@ function openPaymentForm(stayId = "") {
   const select = document.getElementById("paymentStay");
   const payable = state.stays.filter(stay => stayBalance(stay) > 0);
   select.innerHTML = '<option value="">Select stay</option>' + payable
-    .map(stay => `<option value="${stay.id}">${escapeHTML(stay.guestName)} · ${escapeHTML(stay.checkinCode)} · Due ${money(stayBalance(stay))}</option>`).join("");
+    .map(stay => `<option value="${stay.id}" data-balance="${stayBalance(stay).toFixed(2)}">${escapeHTML(stay.guestName)} · ${escapeHTML(stay.checkinCode)} · Due ${money(stayBalance(stay))}</option>`).join("");
   if (stayId) select.value = String(stayId);
+  resetPaymentCalc();
   showModal("paymentModal");
+}
+
+function selectedStayBalance() {
+  const option = document.getElementById("paymentStay").selectedOptions[0];
+  return Number(option?.dataset.balance || 0);
+}
+
+function updatePaymentSummary() {
+  const summary = document.getElementById("paymentSummary");
+  const balance = selectedStayBalance();
+  const amount = Number(document.getElementById("paymentAmount").value || 0);
+  if (!balance) { summary.textContent = ""; return; }
+  const remaining = balance - amount;
+  if (remaining < -0.001) {
+    summary.innerHTML = `<span class="text-danger">Over by ${money(Math.abs(remaining))}. Payment cannot exceed the balance of ${money(balance)}.</span>`;
+  } else {
+    summary.innerHTML = `<span class="text-muted">Balance due: <strong>${money(balance)}</strong> · Remaining after payment: <strong>${money(Math.max(0, remaining))}</strong></span>`;
+  }
+}
+
+function resetPaymentCalc() {
+  // runs after the form's own reset has finished
+  setTimeout(() => {
+    document.getElementById("calcPad").classList.add("d-none");
+    document.getElementById("calcToggle").setAttribute("aria-expanded", "false");
+    updatePaymentSummary();
+  }, 0);
+}
+
+function bindPaymentCalculator() {
+  const input = document.getElementById("paymentAmount");
+  const pad = document.getElementById("calcPad");
+  const setAmount = value => { input.value = value; updatePaymentSummary(); };
+
+  document.getElementById("calcToggle").addEventListener("click", event => {
+    const hidden = pad.classList.toggle("d-none");
+    event.currentTarget.setAttribute("aria-expanded", String(!hidden));
+  });
+
+  pad.addEventListener("click", event => {
+    const button = event.target.closest("button");
+    if (!button) return;
+    const { key, add } = button.dataset;
+    const current = input.value;
+    if (add) setAmount((Number(current || 0) + Number(add)).toFixed(2));
+    else if (key === "back") setAmount(current.slice(0, -1));
+    else if (key === "clear") setAmount("");
+    else if (key === ".") { if (!current.includes(".")) setAmount((current || "0") + "."); }
+    else if (key) {
+      if (/\.\d{2}$/.test(current)) return; // max 2 decimal places
+      setAmount(current + key);
+    }
+  });
+
+  document.getElementById("calcExact").addEventListener("click", () => {
+    const balance = selectedStayBalance();
+    if (balance > 0) setAmount(balance.toFixed(2));
+  });
+
+  input.addEventListener("input", updatePaymentSummary);
+  document.getElementById("paymentStay").addEventListener("change", updatePaymentSummary);
 }
 
 async function savePayment(event) {
@@ -896,7 +1069,7 @@ function tableSearch(inputId, tableBodyId) {
   const body = document.getElementById(tableBodyId);
   if (!input || !body) return;
   const query = input.value.trim().toLowerCase();
-  body.querySelectorAll("tr").forEach(row => row.classList.toggle("d-none", !row.textContent.toLowerCase().includes(query)));
+  body.querySelectorAll("tr, .room-item").forEach(row => row.classList.toggle("d-none", !row.textContent.toLowerCase().includes(query)));
 }
 
 function filterStays() {
@@ -923,6 +1096,7 @@ function handlePageAction(event) {
   const actionElement = event.target.closest("[data-action]");
   if (!actionElement) return;
   const { action, id } = actionElement.dataset;
+  if (action === "filter-type") { state.roomTypeFilter = actionElement.dataset.type || ""; renderPage(); return; }
   if (action === "add-room") openRoomForm();
   if (action === "edit-room") openRoomForm(id);
   if (action === "delete-room") deleteRecord("room_delete", id, "Archive this room? Its history will be retained.", "Room archived.");
@@ -963,6 +1137,7 @@ function bindFormReset(formId, modalId, errorIds, onClear) {
 }
 
 async function initialize() {
+  injectRoomStyles();
   document.querySelectorAll(".current-year").forEach(element => {
     element.textContent = new Date().getFullYear();
   });
@@ -986,7 +1161,7 @@ async function initialize() {
   bindFormReset("checkoutForm", "checkoutModal", ["checkoutError"], () => {
     document.getElementById("checkoutDetails").textContent = "Select a guest to review room and charges.";
   });
-  bindFormReset("paymentForm", "paymentModal", ["paymentError"]);
+  bindFormReset("paymentForm", "paymentModal", ["paymentError"], resetPaymentCalc);
   bindFormReset("employeeForm", "employeeModal", ["employeeError"], () => {
     document.getElementById("employeeModalTitle").textContent = "Add employee";
     document.getElementById("passwordRequirement").textContent = "(required when creating a login; minimum 12 characters)";
@@ -1077,6 +1252,7 @@ async function initialize() {
   document.getElementById("checkinForm").addEventListener("submit", saveCheckin);
   document.getElementById("checkoutForm").addEventListener("submit", saveCheckout);
   document.getElementById("paymentForm").addEventListener("submit", savePayment);
+  bindPaymentCalculator();
   document.getElementById("employeeForm").addEventListener("submit", saveEmployee);
   document.getElementById("expenseForm").addEventListener("submit", saveExpense);
   document.getElementById("menuToggle").addEventListener("click", () => document.getElementById("sidebar").classList.toggle("open"));

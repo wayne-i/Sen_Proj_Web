@@ -816,3 +816,40 @@ body {
     font-size: 21px;
   }
 }
+
+/* Payment calculator pad */
+.payment-calc {
+  padding: 12px;
+  border: 1px solid var(--resort-line);
+  border-radius: 8px;
+  background: #fafbf9;
+}
+
+.payment-calc .calc-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.payment-calc .calc-grid .btn {
+  padding: 11px 0;
+  border: 1px solid var(--resort-line);
+  background: white;
+  color: var(--resort-ink);
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.payment-calc .calc-grid .btn:active {
+  background: var(--resort-green-soft);
+}
+
+.payment-calc .calc-quick {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+}
+
+#paymentSummary {
+  font-size: 11px;
+}
