@@ -21,8 +21,8 @@ INSTALLATION
 6. Open:
    http://localhost/aling_mameng_resort/create_admin.php
 7. The initial admin login is:
-   Email: admin@alingmamengresort.com
-   Password: ChangeMe123!
+   Email: alingmamengresort@gmail.com
+   Password: admin123
 8. Log in at:
    http://localhost/aling_mameng_resort/login.php
 9. IMPORTANT: Delete create_admin.php immediately after creating the admin.
